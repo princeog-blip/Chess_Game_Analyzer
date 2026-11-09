@@ -78,7 +78,7 @@ def crop_all_squares(warped_img, margin=8):
             
     return squares
 
-def detect_changed_squares(prev_warped, curr_warped, top_n=4):
+def detect_changed_squares(prev_warped, curr_warped, top_n=6):
     """
     Compares the current frame with the previous move frame to detect
     which squares experienced the highest pixel intensity changes.
@@ -90,11 +90,16 @@ def detect_changed_squares(prev_warped, curr_warped, top_n=4):
     for sq_name in prev_sq:
         g1 = cv2.cvtColor(prev_sq[sq_name], cv2.COLOR_BGR2GRAY)
         g2 = cv2.cvtColor(curr_sq[sq_name], cv2.COLOR_BGR2GRAY)
+        
+        # Blur to reduce minor camera sensor noise
+        g1 = cv2.GaussianBlur(g1, (5, 5), 0)
+        g2 = cv2.GaussianBlur(g2, (5, 5), 0)
+        
         diff = cv2.absdiff(g1, g2)
         diff_scores[sq_name] = float(np.mean(diff))
         
     sorted_sq = sorted(diff_scores.items(), key=lambda item: item[1], reverse=True)
-    return [sq for sq, score in sorted_sq[:top_n]]
+    return [sq for sq, score in sorted_sq[:top_n]], sorted_sq[:top_n]
 
 # ------------------------------------------------------------------------------
 # 3. MOVE RESOLUTION VIA PYTHON-CHESS
@@ -277,18 +282,34 @@ def main():
             # Auto-save initial board frame once 4 corners are selected
             if previous_warped is None:
                 previous_warped = warped.copy()
-                print("Board calibrated! Initial frame captured. White moves first.\n")
+                print("\n>>> Board calibrated! Initial frame captured. White moves first.\n")
 
             # Draw current evaluation on warped view
             warped_display = warped.copy()
+            
+            # Overlay an 8x8 grid with square names for easy alignment verification
+            sq_size = warped.shape[0] // 8
+            files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+            ranks = ['8', '7', '6', '5', '4', '3', '2', '1']
+            for r_idx, r in enumerate(ranks):
+                for c_idx, f in enumerate(files):
+                    cv2.rectangle(warped_display, 
+                                  (c_idx * sq_size, r_idx * sq_size), 
+                                  ((c_idx + 1) * sq_size, (r_idx + 1) * sq_size), 
+                                  (50, 50, 50), 1)
+                    if (r_idx == 7) or (c_idx == 0):
+                        cv2.putText(warped_display, f"{f}{r}", 
+                                    (c_idx * sq_size + 4, (r_idx + 1) * sq_size - 6),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
+
             cv2.putText(warped_display, last_evaluation, (15, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2)
             cv2.imshow("Top-Down Warped View", warped_display)
 
         # Onscreen instructions
-        info_text = f"Corners: {len(clicked_corners)}/4 | Press Space to record move"
+        info_text = f"Corners: {len(clicked_corners)}/4 | Focus window & Press SPACE for Move"
         cv2.putText(display, info_text, (15, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
 
         cv2.imshow(window_name, display)
         key = cv2.waitKey(1) & 0xFF
@@ -304,13 +325,14 @@ def main():
             print("\nGame and corners have been reset. Set pieces and click 4 corners again.")
 
         elif key == 32:  # SPACEBAR
+            print("\n[Spacebar Pressed] Processing move detection...")
             if warped is None or previous_warped is None:
                 print("Warning: Please click all 4 board corners first before making a move!")
                 continue
 
             # Detect top changed squares
-            changed = detect_changed_squares(previous_warped, warped, top_n=4)
-            print(f"\nChanged squares detected: {changed}")
+            changed, scores = detect_changed_squares(previous_warped, warped, top_n=6)
+            print(f"Top changed squares detected: {scores}")
 
             # Check if this matches a valid legal move
             move = resolve_move(board, changed)
@@ -320,7 +342,7 @@ def main():
 
                 # Run win prediction model
                 verdict, score = evaluate_position(board)
-                last_evaluation = verdict
+                last_evaluation = f"{move.uci().upper()} | {verdict}"
 
                 print("-" * 50)
                 print(f"MOVE REGISTERED : {move.uci()} ({'White' if board.turn == chess.BLACK else 'Black'})")
@@ -330,12 +352,14 @@ def main():
                 print(board)
                 print("-" * 50 + "\n")
             else:
-                print("Could not identify a valid legal move from the changed squares.")
-                print(f"Current player's legal moves: {[m.uci() for m in board.legal_moves][:8]}...")
-                print("Tip: Ensure your hand is completely out of frame and press Spacebar again.")
+                print(f"Could not identify a legal move among changed squares: {changed}")
+                print(f"White/Black turn: {'White' if board.turn == chess.WHITE else 'Black'}")
+                print(f"Sample legal moves: {[m.uci() for m in board.legal_moves][:10]}")
+                print("Tip: Check that rank 1 & 2 (White) are at the bottom of the warped view!")
 
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()
+
