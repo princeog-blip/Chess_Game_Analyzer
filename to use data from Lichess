@@ -1,0 +1,12 @@
+By the way, I forgot to include instructions on how to get the data for our chess game. Here it is:
+
+uncament 4 lines under --- HOW TO LOAD REAL LICHESS CSV DATA INSTEAD ---
+
+raw_df = pd.read_csv('lichess_sample.csv').dropna().head(5000)
+features_list = [extract_board_features(fen) for fen in raw_df['fen']]
+df = pd.DataFrame(features_list, columns=['Material_Advantage', 'Piece_Vulnerability', 'Center_Control', 'Piece_Mobility', 'King_Safety'])
+df['Stockfish_Eval'] = raw_df['cp'].values / 100.0  # Convert centipawns to pawns
+
+
+to use 15GB of data from Liches go to https://huggingface.co/datasets/Lichess/chess-position-evaluations
+click Files and versions, or use the dataset viewer on that page to export/save just the first 2,000 to 5,000 rows as lichess_sample.csv 
