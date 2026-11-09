@@ -143,27 +143,109 @@ def resolve_move(board, changed_squares):
     return None
 
 # ------------------------------------------------------------------------------
-# 4. POSITION & WIN ADVANTAGE EVALUATION
+# 4. POSITION & WIN ADVANTAGE EVALUATION (Teammate's 5-Feature Engine)
 # ------------------------------------------------------------------------------
 PIECE_VALUES = {
     chess.PAWN: 1,
     chess.KNIGHT: 3,
-    chess.BISHOP: 3.2,
+    chess.BISHOP: 3,
     chess.ROOK: 5,
     chess.QUEEN: 9,
     chess.KING: 0
 }
 
-# Center squares bonus (d4, e4, d5, e5)
 CENTER_SQUARES = [chess.D4, chess.E4, chess.D5, chess.E5]
+
+def extract_board_features(fen_string):
+    """
+    Takes a digital chessboard (FEN string) and returns a list of 5 numerical
+    features from White's perspective (Positive = White advantage, Negative = Black advantage).
+    """
+    board = chess.Board(fen_string)
+    
+    # --- FEATURE 1: Material Advantage ---
+    # Sum the point values of White's pieces minus Black's pieces
+    white_material = 0
+    black_material = 0
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece:
+            val = PIECE_VALUES[piece.piece_type]
+            if piece.color == chess.WHITE:
+                white_material += val
+            else:
+                black_material += val
+    material_advantage = white_material - black_material
+
+    # --- FEATURE 2: Piece Vulnerability ---
+    # Count how many of a player's pieces are currently under attack and undefended ("hanging")
+    white_vulnerable = 0
+    black_vulnerable = 0
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece and piece.piece_type != chess.KING:
+            if piece.color == chess.WHITE:
+                # Attacked by Black and NOT defended by White
+                if board.is_attacked_by(chess.BLACK, square) and not board.is_attacked_by(chess.WHITE, square):
+                    white_vulnerable += PIECE_VALUES[piece.piece_type]
+            else:
+                # Attacked by White and NOT defended by Black
+                if board.is_attacked_by(chess.WHITE, square) and not board.is_attacked_by(chess.BLACK, square):
+                    black_vulnerable += PIECE_VALUES[piece.piece_type]
+    # Net vulnerability score (positive means Black has more vulnerable pieces, favoring White)
+    vulnerability_score = black_vulnerable - white_vulnerable
+
+    # --- FEATURE 3: Center Control ---
+    # Count how many times White attacks the 4 center squares minus Black's attacks
+    white_center = sum(len(board.attackers(chess.WHITE, sq)) for sq in CENTER_SQUARES)
+    black_center = sum(len(board.attackers(chess.BLACK, sq)) for sq in CENTER_SQUARES)
+    center_control = white_center - black_center
+
+    # --- FEATURE 4: Piece Mobility ---
+    # Count total number of legal moves available to White vs. Black
+    original_turn = board.turn
+    
+    board.turn = chess.WHITE
+    white_mobility = board.legal_moves.count()
+    
+    board.turn = chess.BLACK
+    black_mobility = board.legal_moves.count()
+    
+    board.turn = original_turn # Restore original turn
+    mobility_advantage = white_mobility - black_mobility
+
+    # --- FEATURE 5: King Safety ---
+    # Measure how many enemy pieces are attacking the 8 squares immediately surrounding the King
+    def get_king_danger(king_color, enemy_color):
+        king_sq = board.king(king_color)
+        if king_sq is None:
+            return 0
+        # Get the squares adjacent to the King
+        king_zone = board.attacks(king_sq)
+        danger = sum(len(board.attackers(enemy_color, sq)) for sq in king_zone)
+        return danger
+
+    white_king_danger = get_king_danger(chess.WHITE, chess.BLACK)
+    black_king_danger = get_king_danger(chess.BLACK, chess.WHITE)
+    # Positive means Black's king is in more danger than White's king
+    king_safety_advantage = black_king_danger - white_king_danger
+
+    return [
+        material_advantage,
+        vulnerability_score,
+        center_control,
+        mobility_advantage,
+        king_safety_advantage
+    ]
 
 def evaluate_position(board):
     """
-    Evaluates who is in position to win based on:
-      1. Material balance (Pawn=1, Knight/Bishop=3, Rook=5, Queen=9)
-      2. Board center control (d4, e4, d5, e5)
-      3. Piece mobility (number of legal move options)
-      4. King safety / Checks
+    Evaluates who is in position to win using the teammate's 5 extracted features:
+      1. Material Advantage
+      2. Piece Vulnerability (Hanging pieces)
+      3. Center Control (Attacks on d4, e4, d5, e5)
+      4. Piece Mobility (White legal moves - Black legal moves)
+      5. King Safety (Attacks around enemy king - Attacks around own king)
     Returns formatted evaluation verdict string and numeric score.
     """
     if board.is_checkmate():
@@ -173,50 +255,31 @@ def evaluate_position(board):
     if board.is_game_over():
         return "DRAW / STALEMATE", 0.0
 
-    # 1. Material score
-    material_score = 0.0
-    for sq in chess.SQUARES:
-        piece = board.piece_at(sq)
-        if piece:
-            val = PIECE_VALUES[piece.piece_type]
-            material_score += val if piece.color == chess.WHITE else -val
+    # Extract teammate's 5 features from current board FEN
+    features = extract_board_features(board.fen())
+    mat, vuln, center, mob, king_safe = features
 
-    # 2. Center control bonus
-    center_score = 0.0
-    for sq in CENTER_SQUARES:
-        piece = board.piece_at(sq)
-        if piece:
-            bonus = 0.3
-            center_score += bonus if piece.color == chess.WHITE else -bonus
+    # Combine into weighted advantage score
+    total_score = (
+        1.0 * mat +
+        0.5 * vuln +
+        0.3 * center +
+        0.05 * mob +
+        0.4 * king_safe
+    )
 
-    # 3. Mobility score
-    white_mobility = len(list(board.legal_moves)) if board.turn == chess.WHITE else 0
-    board.push(chess.Move.null())  # Null move to peek at opponent mobility
-    black_mobility = len(list(board.legal_moves)) if board.turn == chess.BLACK else 0
-    board.pop()
-    mobility_score = 0.05 * (white_mobility - black_mobility)
-
-    # 4. Check pressure
-    check_score = 0.0
-    if board.is_check():
-        # Negative impact for whichever player is in check
-        check_score = -0.5 if board.turn == chess.WHITE else 0.5
-
-    # Total advantage score (> 0 means White advantage, < 0 means Black advantage)
-    total_eval = material_score + center_score + mobility_score + check_score
-
-    if total_eval >= 2.0:
-        verdict = f"White is Winning (+{total_eval:.2f})"
-    elif total_eval >= 0.7:
-        verdict = f"White has Slight Advantage (+{total_eval:.2f})"
-    elif total_eval <= -2.0:
-        verdict = f"Black is Winning ({total_eval:.2f})"
-    elif total_eval <= -0.7:
-        verdict = f"Black has Slight Advantage ({total_eval:.2f})"
+    if total_score >= 2.0:
+        verdict = f"White is Winning (+{total_score:.2f})"
+    elif total_score >= 0.7:
+        verdict = f"White has Slight Advantage (+{total_score:.2f})"
+    elif total_score <= -2.0:
+        verdict = f"Black is Winning ({total_score:.2f})"
+    elif total_score <= -0.7:
+        verdict = f"Black has Slight Advantage ({total_score:.2f})"
     else:
-        verdict = f"Equal Position / Balanced ({total_eval:.2f})"
+        verdict = f"Equal Position / Balanced ({total_score:.2f})"
 
-    return verdict, total_eval
+    return verdict, total_score
 
 # ------------------------------------------------------------------------------
 # 5. MAIN INTERACTIVE CAMERA LOOP
@@ -362,4 +425,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
