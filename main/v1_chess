@@ -18,6 +18,39 @@ DEFAULT_PATTERN_SIZE = (7, 7)
 # Square size in arbitrary units or millimeters (e.g. 25.0 mm per square)
 SQUARE_SIZE = 25.0
 
+def find_chessboard_corners(gray, pattern_size):
+    flags = (
+        cv2.CALIB_CB_ADAPTIVE_THRESH
+        + cv2.CALIB_CB_NORMALIZE_IMAGE
+        + cv2.CALIB_CB_FAST_CHECK
+    )
+    found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+    if not found:
+        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+    return found, corners
+
+def chessboard_outline(corners, pattern_size):
+    cols, rows = pattern_size
+    grid = corners.reshape(rows, cols, 2)
+
+    top_left = grid[0, 0] - 0.5 * (
+        (grid[0, 1] - grid[0, 0]) + (grid[1, 0] - grid[0, 0])
+    )
+    top_right = grid[0, -1] + 0.5 * (
+        (grid[0, -1] - grid[0, -2]) - (grid[1, -1] - grid[0, -1])
+    )
+    bottom_right = grid[-1, -1] + 0.5 * (
+        (grid[-1, -1] - grid[-1, -2]) + (grid[-1, -1] - grid[-2, -1])
+    )
+    bottom_left = grid[-1, 0] + 0.5 * (
+        (grid[-1, 0] - grid[-1, 1]) + (grid[-1, 0] - grid[-2, 0])
+    )
+
+    return np.rint(
+        [top_left, top_right, bottom_right, bottom_left]
+    ).astype(np.int32)
+
 def generate_synthetic_chessboard(pattern_size=DEFAULT_PATTERN_SIZE, square_px=60):
     """
     Generates a synthetic chessboard image to allow testing even if
@@ -51,8 +84,8 @@ def generate_synthetic_chessboard(pattern_size=DEFAULT_PATTERN_SIZE, square_px=6
     )
     return padded
 
-def capture_camera_frame(camera_index=0):
-    """Show the default camera feed and return a frame when the user presses q."""
+def capture_camera_frame(camera_index=0, pattern_size=DEFAULT_PATTERN_SIZE):
+    """Scan the live feed and return a frame when the user presses q."""
     camera = cv2.VideoCapture(camera_index)
     if not camera.isOpened():
         camera.release()
@@ -66,7 +99,26 @@ def capture_camera_frame(camera_index=0):
             if not success:
                 raise RuntimeError(f"Could not read a frame from camera {camera_index}.")
 
-            cv2.imshow("Camera Feed - press q to capture, Esc to cancel", frame)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            found, corners = find_chessboard_corners(gray, pattern_size)
+            display_frame = frame.copy()
+            if found:
+                outline = chessboard_outline(corners, pattern_size)
+                cv2.polylines(display_frame, [outline], True, (0, 255, 0), 3)
+                status = "Chessboard detected - press q to capture"
+            else:
+                status = "Searching for chessboard - press Esc to cancel"
+
+            cv2.putText(
+                display_frame,
+                status,
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0) if found else (0, 0, 255),
+                2,
+            )
+            cv2.imshow("Live Chessboard Detection", display_frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 return frame
@@ -95,8 +147,9 @@ def run_chessboard_pipeline(image_path=None, pattern_size=DEFAULT_PATTERN_SIZE, 
     # -------------------------------------------------------------------------
     print("\n[Step 1] Loading image and converting to grayscale...")
     if image_path is None:
-        print("Opening the default camera. Press 'q' to capture a frame or Esc to cancel.")
-        image = capture_camera_frame()
+        print("Opening the default camera and searching for a chessboard.")
+        print("Press 'q' to capture a frame or Esc to cancel.")
+        image = capture_camera_frame(pattern_size=pattern_size)
     elif os.path.exists(image_path):
         print(f"Reading image from: {image_path}")
         image = cv2.imread(image_path)
@@ -115,17 +168,7 @@ def run_chessboard_pipeline(image_path=None, pattern_size=DEFAULT_PATTERN_SIZE, 
     # Run cv2.findChessboardCorners(gray, patternSize, flags).
     # -------------------------------------------------------------------------
     print(f"\n[Step 2] Detecting chessboard corners with patternSize={pattern_size}...")
-    flags = (
-        cv2.CALIB_CB_ADAPTIVE_THRESH +
-        cv2.CALIB_CB_NORMALIZE_IMAGE +
-        cv2.CALIB_CB_FAST_CHECK
-    )
-    found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
-
-    if not found:
-        print("Chessboard corners NOT found. Retrying without CALIB_CB_FAST_CHECK...")
-        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
-        found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+    found, corners = find_chessboard_corners(gray, pattern_size)
 
     if not found:
         print(f"Error: Could not find chessboard corners of size {pattern_size} in the provided image.")
@@ -155,6 +198,8 @@ def run_chessboard_pipeline(image_path=None, pattern_size=DEFAULT_PATTERN_SIZE, 
     print("\n[Step 4] Drawing detected and refined corners on image...")
     verified_image = image.copy()
     cv2.drawChessboardCorners(verified_image, pattern_size, corners_subpix, found)
+    outline = chessboard_outline(corners_subpix, pattern_size)
+    cv2.polylines(verified_image, [outline], True, (0, 255, 0), 3)
     
     output_filename = "detected_chessboard_corners.png"
     cv2.imwrite(output_filename, verified_image)
