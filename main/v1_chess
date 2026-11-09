@@ -1,0 +1,255 @@
+# ==============================================================================
+# CSCI 270 - Chess Game Analyzer (Module: Camera Calibration & Corner Detection)
+# Pipeline:
+#   1. Capture from the default camera or load an image, then convert to grayscale
+#   2. Detect Corners (cv2.findChessboardCorners)
+#   3. Sub-pixel Refinement (cv2.cornerSubPix)
+#   4. Draw / Verify (cv2.drawChessboardCorners)
+#   5. Calibrate or Estimate Pose (cv2.calibrateCamera / cv2.solvePnP)
+# ==============================================================================
+
+import os
+import sys
+import numpy as np
+import cv2
+
+# Default inner corners for a standard 8x8 chessboard is (7, 7)
+DEFAULT_PATTERN_SIZE = (7, 7)
+# Square size in arbitrary units or millimeters (e.g. 25.0 mm per square)
+SQUARE_SIZE = 25.0
+
+def generate_synthetic_chessboard(pattern_size=DEFAULT_PATTERN_SIZE, square_px=60):
+    """
+    Generates a synthetic chessboard image to allow testing even if
+    a physical camera image is not provided.
+    """
+    cols, rows = pattern_size
+    board_w = (cols + 1) * square_px
+    board_h = (rows + 1) * square_px
+    img = np.zeros((board_h, board_w, 3), dtype=np.uint8)
+    
+    for r in range(rows + 1):
+        for c in range(cols + 1):
+            if (r + c) % 2 == 0:
+                color = (255, 255, 255)
+            else:
+                color = (0, 0, 0)
+            cv2.rectangle(
+                img,
+                (c * square_px, r * square_px),
+                ((c + 1) * square_px, (r + 1) * square_px),
+                color,
+                -1
+            )
+            
+    # Add border padding
+    pad = 40
+    padded = cv2.copyMakeBorder(
+        img, pad, pad, pad, pad,
+        cv2.BORDER_CONSTANT,
+        value=(180, 180, 180)
+    )
+    return padded
+
+def capture_camera_frame(camera_index=0):
+    """Show the default camera feed and return a frame when the user presses q."""
+    camera = cv2.VideoCapture(camera_index)
+    if not camera.isOpened():
+        camera.release()
+        raise RuntimeError(
+            f"Could not open camera {camera_index}. Check camera connection and permissions."
+        )
+
+    try:
+        while True:
+            success, frame = camera.read()
+            if not success:
+                raise RuntimeError(f"Could not read a frame from camera {camera_index}.")
+
+            cv2.imshow("Camera Feed - press q to capture, Esc to cancel", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                return frame
+            if key == 27:
+                raise RuntimeError("Camera capture cancelled.")
+    finally:
+        camera.release()
+        cv2.destroyAllWindows()
+
+def run_chessboard_pipeline(image_path=None, pattern_size=DEFAULT_PATTERN_SIZE, square_size=SQUARE_SIZE):
+    """
+    Executes the 5-step OpenCV camera calibration & chessboard detection pipeline:
+      Step 1: Capture from the default camera or load an image, then convert to grayscale
+      Step 2: Detect corners
+      Step 3: Refine corners with sub-pixel precision
+      Step 4: Draw & verify corners
+      Step 5: Calibrate camera and estimate 3D board pose
+    """
+    print("=" * 70)
+    print("CHESSBOARD DETECTION & CAMERA POSE ESTIMATION PIPELINE")
+    print("=" * 70)
+    
+    # -------------------------------------------------------------------------
+    # STEP 1: Load Image & Convert
+    # Capture from the default camera or read an image via cv2.imread().
+    # -------------------------------------------------------------------------
+    print("\n[Step 1] Loading image and converting to grayscale...")
+    if image_path is None:
+        print("Opening the default camera. Press 'q' to capture a frame or Esc to cancel.")
+        image = capture_camera_frame()
+    elif os.path.exists(image_path):
+        print(f"Reading image from: {image_path}")
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Failed to load image from {image_path}")
+    else:
+        print(f"File not found at '{image_path}'. Creating synthetic chessboard image for demonstration.")
+        image = generate_synthetic_chessboard(pattern_size)
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+    print(f"Image loaded successfully (Dimensions: {w}x{h})")
+
+    # -------------------------------------------------------------------------
+    # STEP 2: Detect Corners
+    # Run cv2.findChessboardCorners(gray, patternSize, flags).
+    # -------------------------------------------------------------------------
+    print(f"\n[Step 2] Detecting chessboard corners with patternSize={pattern_size}...")
+    flags = (
+        cv2.CALIB_CB_ADAPTIVE_THRESH +
+        cv2.CALIB_CB_NORMALIZE_IMAGE +
+        cv2.CALIB_CB_FAST_CHECK
+    )
+    found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+
+    if not found:
+        print("Chessboard corners NOT found. Retrying without CALIB_CB_FAST_CHECK...")
+        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        found, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+
+    if not found:
+        print(f"Error: Could not find chessboard corners of size {pattern_size} in the provided image.")
+        return None
+
+    print(f"Corners detected successfully! Found {len(corners)} inner corners.")
+
+    # -------------------------------------------------------------------------
+    # STEP 3: Sub-pixel Refinement
+    # Pass the raw corners into cv2.cornerSubPix() for exact coordinates.
+    # -------------------------------------------------------------------------
+    print("\n[Step 3] Refining corners with sub-pixel precision...")
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    corners_subpix = cv2.cornerSubPix(
+        gray,
+        corners,
+        winSize=(11, 11),
+        zeroZone=(-1, -1),
+        criteria=criteria
+    )
+    print("Sub-pixel refinement complete.")
+
+    # -------------------------------------------------------------------------
+    # STEP 4: Draw / Verify
+    # Display the output using cv2.drawChessboardCorners().
+    # -------------------------------------------------------------------------
+    print("\n[Step 4] Drawing detected and refined corners on image...")
+    verified_image = image.copy()
+    cv2.drawChessboardCorners(verified_image, pattern_size, corners_subpix, found)
+    
+    output_filename = "detected_chessboard_corners.png"
+    cv2.imwrite(output_filename, verified_image)
+    print(f"Saved visualization to: {output_filename}")
+
+    # -------------------------------------------------------------------------
+    # STEP 5: Calibrate or Estimate Pose
+    # Feed the points into cv2.calibrateCamera() or cv2.solvePnP()
+    # -------------------------------------------------------------------------
+    print("\n[Step 5] Camera Calibration & Pose Estimation...")
+    
+    # 1. Prepare 3D object coordinates in board space (Z = 0 plane)
+    cols, rows = pattern_size
+    objp = np.zeros((rows * cols, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * square_size
+    
+    objpoints = [objp]
+    imgpoints = [corners_subpix]
+
+    # 2. Calibrate camera to obtain intrinsic matrix and distortion coefficients
+    ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
+        objpoints, imgpoints, (w, h), None, None
+    )
+    
+    print("\n--- Calibration Results ---")
+    print(f"RMS Re-projection Error: {ret:.4f}")
+    print("Camera Intrinsic Matrix (K):")
+    print(camera_matrix)
+    print("\nDistortion Coefficients:")
+    print(dist_coeffs.ravel())
+
+    # 3. Estimate Board Pose via solvePnP
+    success, rvec, tvec = cv2.solvePnP(
+        objp,
+        corners_subpix,
+        camera_matrix,
+        dist_coeffs,
+        flags=cv2.SOLVEPNP_ITERATIVE
+    )
+
+    if success:
+        # Convert rotation vector to 3x3 rotation matrix
+        R, _ = cv2.Rodrigues(rvec)
+        print("\n--- Board Pose Estimation (solvePnP) ---")
+        print(f"Translation Vector (tvec) [X, Y, Z in mm]:\n{tvec.ravel()}")
+        print(f"Rotation Matrix (R):\n{R}")
+        
+        # Project 3D coordinate axes onto image to visualize 3D orientation
+        axis_length = square_size * 3
+        axis_3d = np.float32([
+            [axis_length, 0, 0],       # X axis (Red)
+            [0, axis_length, 0],       # Y axis (Green)
+            [0, 0, -axis_length]       # Z axis (Blue, pointing out of board)
+        ]).reshape(-1, 3)
+        
+        origin_3d = np.float32([[0, 0, 0]]).reshape(-1, 3)
+        
+        imgpts_axis, _ = cv2.projectPoints(axis_3d, rvec, tvec, camera_matrix, dist_coeffs)
+        imgpts_origin, _ = cv2.projectPoints(origin_3d, rvec, tvec, camera_matrix, dist_coeffs)
+        
+        origin_pt = tuple(imgpts_origin[0].ravel().astype(int))
+        axis_x = tuple(imgpts_axis[0].ravel().astype(int))
+        axis_y = tuple(imgpts_axis[1].ravel().astype(int))
+        axis_z = tuple(imgpts_axis[2].ravel().astype(int))
+        
+        pose_image = verified_image.copy()
+        cv2.line(pose_image, origin_pt, axis_x, (0, 0, 255), 3) # X - Red
+        cv2.line(pose_image, origin_pt, axis_y, (0, 255, 0), 3) # Y - Green
+        cv2.line(pose_image, origin_pt, axis_z, (255, 0, 0), 3) # Z - Blue
+        
+        pose_filename = "chessboard_pose_axes.png"
+        cv2.imwrite(pose_filename, pose_image)
+        print(f"Saved 3D pose visualization to: {pose_filename}")
+
+    # Optional GUI display if running with an active desktop display
+    try:
+        cv2.imshow("Chessboard Corner Detection", verified_image)
+        if success:
+            cv2.imshow("Chessboard 3D Pose", pose_image)
+        print("\nPress any key in the image window to exit (or close window)...")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    except Exception:
+        # Gracefully handle headless or non-GUI environments
+        pass
+
+    return {
+        "camera_matrix": camera_matrix,
+        "dist_coeffs": dist_coeffs,
+        "rvec": rvec,
+        "tvec": tvec,
+        "corners": corners_subpix
+    }
+
+if __name__ == "__main__":
+    # If an image path is supplied via CLI arguments, use it
+    target_img = sys.argv[1] if len(sys.argv) > 1 else None
+    run_chessboard_pipeline(target_img)
