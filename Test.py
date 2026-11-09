@@ -213,6 +213,64 @@ def evaluate_position(board):
 
     return verdict, total_eval
 
+def draw_digital_board(board, height, evaluation):
+    """Render the tracked chess position in a panel beside the camera feed."""
+    panel_width = max(380, int(height * 0.85))
+    panel = np.full((height, panel_width, 3), (35, 35, 35), dtype=np.uint8)
+    cv2.putText(
+        panel, "CURRENT POSITION", (16, 28),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 245), 2
+    )
+    turn = "White" if board.turn == chess.WHITE else "Black"
+    cv2.putText(
+        panel, f"{turn} to move | Move {board.fullmove_number}", (16, 55),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.48, (210, 210, 210), 1
+    )
+    cv2.putText(
+        panel, evaluation[:48], (16, 78),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 230, 120), 1
+    )
+
+    margin = 30
+    board_size = min(panel_width - 2 * margin, height - 115)
+    if board_size < 8:
+        return panel
+    square_size = board_size // 8
+    board_size = square_size * 8
+    left = (panel_width - board_size) // 2
+    top = 92 + max(0, (height - 115 - board_size) // 2)
+
+    light_square = (238, 216, 181)
+    dark_square = (181, 136, 99)
+    for row in range(8):
+        rank = 7 - row
+        for col in range(8):
+            x1 = left + col * square_size
+            y1 = top + row * square_size
+            x2 = x1 + square_size
+            y2 = y1 + square_size
+            color = light_square if (row + col) % 2 == 0 else dark_square
+            cv2.rectangle(panel, (x1, y1), (x2, y2), color, -1)
+
+            piece = board.piece_at(chess.square(col, rank))
+            if piece is not None:
+                letter = piece.symbol().upper()
+                center = (x1 + square_size // 2, y1 + square_size // 2)
+                font_scale = square_size / 42
+                thickness = max(1, square_size // 16)
+                text_color = (250, 250, 250) if piece.color else (25, 25, 25)
+                outline_color = (25, 25, 25) if piece.color else (250, 250, 250)
+                cv2.putText(
+                    panel, letter, center, cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale, outline_color, thickness + 2, cv2.LINE_AA
+                )
+                cv2.putText(
+                    panel, letter, center, cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale, text_color, thickness, cv2.LINE_AA
+                )
+
+    return panel
+
 # ------------------------------------------------------------------------------
 # 5. MAIN INTERACTIVE CAMERA LOOP
 # ------------------------------------------------------------------------------
@@ -279,18 +337,14 @@ def main():
                 previous_warped = warped.copy()
                 print("Board calibrated! Initial frame captured. White moves first.\n")
 
-            # Draw current evaluation on warped view
-            warped_display = warped.copy()
-            cv2.putText(warped_display, last_evaluation, (15, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            cv2.imshow("Top-Down Warped View", warped_display)
-
         # Onscreen instructions
         info_text = f"Corners: {len(clicked_corners)}/4 | Press Space to record move"
         cv2.putText(display, info_text, (15, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
-        cv2.imshow(window_name, display)
+        digital_board = draw_digital_board(board, display.shape[0], last_evaluation)
+        combined_view = np.hstack((display, digital_board))
+        cv2.imshow(window_name, combined_view)
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord('q'):
