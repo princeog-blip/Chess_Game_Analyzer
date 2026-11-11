@@ -265,3 +265,14 @@ plt.tight_layout()
 plt.savefig('chess_ml_results.png')
 print("\nSaved 'chess_ml_results.png' successfully!")
 plt.show()
+
+# Id like to be able to train a model by myself, and have it be able to evaulate a live game mid play. Ideally the model will be able to use material advantage, piece vulerability, center control, piece mobility, king safety, and perhaps potiential piece advantage (if a piece moves to a square, its potienal to gain a better position), to be able to evaluate the game.
+
+# That’s a good goal. I recommend a supervised position-evaluation model, trained by you on real chess positions and evaluations:
+
+# Build training data: Collect FEN positions from real games and label each with a Stockfish evaluation. The model is still yours—you train it to approximate those evaluations. Keep scores consistently from White’s perspective.
+# Train on chess features: Start with your five features, then add a tactical/potential feature. A practical version is to examine legal moves and measure how the features change after a move; checking likely opponent replies makes this more meaningful than just counting attacks.
+# Fit and evaluate: Try a gradient-boosting regressor or Random Forest, and measure error on games it never trained on. Split by game, not random positions, to reduce leakage.
+# Use it during a game: Feed each updated board position into the trained model and display its score. Your board-tracking code can provide positions; the model can evaluate them. Train and save the model separately so you don’t retrain during play.
+# One important issue: v2_FP2.py currently loads Lichess data, then replaces it with synthetic data before training. That needs to be corrected for real training. Also, Stockfish evaluations make the model imitate Stockfish; the model won’t independently discover chess strength beyond its training data.
+
