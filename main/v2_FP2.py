@@ -2,8 +2,7 @@
 # CSCI 270 - Project 2: Chess Game Analyzer (Group 3)
 # Supervised Position Evaluation & Live Game Analyzer Pipeline
 # ==============================================================================
-  git config --global user.email "you@example.com"
-  git config --global user.name "Your Name"
+
 import os
 import sys
 import io
