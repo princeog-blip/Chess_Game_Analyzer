@@ -1,0 +1,81 @@
+======================================================================
+CSCI 270: Chess Game Analyzer - Supervised Position Evaluation Model
+======================================================================
+Found local Lichess PGN file: lichess_evaluated_games.pgn
+
+Sample of Extracted Chess Features & Stockfish Target:
+   Material_Advantage  Piece_Vulnerability  Center_Control  ...  Potential_Advantage  Stockfish_Eval   game_id
+0                   0                    0               1  ...                 0.65            0.18  0IdR4QNI
+1                   0                    0               0  ...                 0.50            0.22  0IdR4QNI
+2                   0                    0               1  ...                -1.05           -0.34  0IdR4QNI
+3                  -1                    0               1  ...                -0.55           -0.39  0IdR4QNI
+4                  -1                    0               3  ...                -0.15           -0.39  0IdR4QNI
+
+[5 rows x 8 columns]
+
+Dataset size: 1500 positions across 23 unique games.
+Training set: 1243 positions | Unseen test set: 257 positions.
+Training Gradient Boosting Evaluation Regressor...
+
+--- MODEL PERFORMANCE RESULTS (Unseen Games) ---
+Mean Squared Error (MSE): 14.3011 pawns²
+Root Mean Squared Error:  3.7817 pawns
+R² Generalization Score:  0.3133
+Model successfully saved to 'chess_eval_model.joblib' and 'chess_eval_scaler.joblib'!
+
+Saved evaluation charts to 'chess_ml_results.png'!
+
+======================================================================
+DEMONSTRATION: Mid-Play Live Game Evaluation
+======================================================================
+
+=== Move 0: Starting Position ===
+FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+Score (White perspective): -0.12 pawns
+White Win Prob: 48.2% | Black Win Prob: 51.8%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : +0.00
+  - Piece_Mobility        : +0.00
+  - King_Safety           : +0.00
+  - Potential_Advantage   : +0.00
+
+=== Move 5: Italian Game (Quiet Giuoco) ===
+FEN: r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 1 5
+Score (White perspective): -0.03 pawns
+White Win Prob: 49.6% | Black Win Prob: 50.4%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : -1.00
+  - Piece_Mobility        : +2.00
+  - King_Safety           : +0.00
+  - Potential_Advantage   : +0.15
+
+=== Move 10: Asymmetrical Position ===
+FEN: r1b1k2r/pppp1ppp/8/4q3/1bP5/2N1P3/PP3PPP/R2QKB1R w KQkq - 0 10
+Score (White perspective): -0.41 pawns
+White Win Prob: 44.2% | Black Win Prob: 55.8%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : +3.00
+  - Piece_Mobility        : -13.00
+  - King_Safety           : +1.00
+  - Potential_Advantage   : -1.80
+
+======================================================================
+               FINAL CHESS EVALUATION SUMMARY
+======================================================================
+Position Stage                      | Eval Score   | White Win% | Black Win% | Assessment
+--------------------------------------------------------------------------------------------
+Opening (Starting Position)         | -0.12 pawns  |  48.2%     |  51.8%     | Balanced / Drawish
+Midgame 1 (Italian Game - White Center) | -0.03 pawns  |  49.6%     |  50.4%     | Balanced / Drawish
+Midgame 2 (Black Advantage)         | -0.41 pawns  |  44.2%     |  55.8%     | Balanced / Drawish
+======================================================================
+Evaluation Complete. Charts saved to 'chess_ml_results.png'.
+======================================================================
