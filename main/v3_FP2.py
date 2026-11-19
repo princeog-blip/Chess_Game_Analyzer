@@ -577,9 +577,9 @@ def train_and_save_model(df: pd.DataFrame, model_type: str = "gradient_boosting"
     if model_type == "gradient_boosting":
         print("Training Gradient Boosting Evaluation Regressor...")
         model = GradientBoostingRegressor(
-            n_estimators=150,
-            learning_rate=0.08,
-            max_depth=5,
+            n_estimators=250,
+            learning_rate=0.06,
+            max_depth=7,
             subsample=0.85,
             random_state=42
         )
