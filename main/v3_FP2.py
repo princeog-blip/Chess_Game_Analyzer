@@ -284,7 +284,7 @@ def parse_lichess_csv(filepath: str, max_rows: int = 5000) -> pd.DataFrame:
     return df
 
 
-def parse_lichess_elite_pgn(pgn_path: str, max_positions: int = 5000, sample_interval: int = 4) -> pd.DataFrame:
+def parse_lichess_elite_pgn(pgn_path: str, max_positions: int = 40000, sample_interval: int = 4) -> pd.DataFrame:
     """
     Parses real master/elite games from 'NEWlichess_elite_2020-08.pgn'.
     Extracts midgame and endgame positions with evaluations calibrated from White's perspective,
@@ -358,7 +358,7 @@ def parse_lichess_elite_pgn(pgn_path: str, max_positions: int = 5000, sample_int
     return df
 
 
-def parse_lichess_pgn_text(pgn_text: str, max_positions: int = 5000) -> pd.DataFrame:
+def parse_lichess_pgn_text(pgn_text: str, max_positions: int = 40000) -> pd.DataFrame:
     """
     Parses PGN games with embedded Stockfish evaluations [%eval ...]
     Converts all scores consistently to White's perspective in pawn units.
@@ -446,7 +446,7 @@ def load_or_create_dataset() -> pd.DataFrame:
     for candidate in elite_pgn_candidates:
         if os.path.isfile(candidate):
             print(f"Found Lichess Elite PGN dataset: {candidate}")
-            return parse_lichess_elite_pgn(candidate, max_positions=5000)
+            return parse_lichess_elite_pgn(candidate, max_positions=40000)
 
     csv_candidates = ['lichess_sample.csv', 'lichess_evals.csv', 'main/lichess_sample.csv', 'main/lichess_evals.csv']
     for candidate in csv_candidates:
@@ -468,7 +468,7 @@ def load_or_create_dataset() -> pd.DataFrame:
         if pgn_data and "[%eval" in pgn_data:
             with open('lichess_evaluated_games.pgn', 'w', encoding='utf-8') as f:
                 f.write(pgn_data)
-            df = parse_lichess_pgn_text(pgn_data, max_positions=5000)
+            df = parse_lichess_pgn_text(pgn_data, max_positions=40000)
             if len(df) >= 50:
                 print(f"Successfully loaded {len(df)} positions from live Lichess games.")
                 return df
