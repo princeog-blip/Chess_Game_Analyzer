@@ -1,0 +1,86 @@
+======================================================================
+CSCI 270: Chess Game Analyzer - Supervised Position Evaluation Model (v4)
+======================================================================
+Found Lichess Elite PGN dataset: NEWlichess_elite_2020-08.pgn
+Reading real Lichess elite games from 'NEWlichess_elite_2020-08.pgn'...
+Successfully extracted 40000 positions across 2068 games from 'NEWlichess_elite_2020-08.pgn'.
+
+Sample of Extracted Chess Features & Stockfish Target:
+   Material_Advantage  Piece_Vulnerability  Center_Control  ...  Potential_Advantage  Stockfish_Eval   game_id
+0                   0                    0               1  ...                 0.00           0.926  Mk0P52uU
+1                   0                    0               3  ...                 0.00           1.824  Mk0P52uU
+2                   0                    0               2  ...                 0.69           1.246  Mk0P52uU
+3                   0                    0               4  ...                 0.00           1.168  Mk0P52uU
+4                   0                    1               2  ...                 0.22           1.123  Mk0P52uU
+
+[5 rows x 9 columns]
+
+Dataset size: 40000 positions across 2055 unique games.
+Training set: 32136 positions | Unseen test set: 7864 positions.
+Training Modern Histogram-Based Gradient Boosting Regressor (Method 4)...
+
+--- MODEL PERFORMANCE RESULTS (Unseen Games) ---
+Mean Squared Error (MSE): 1.4729 pawns²
+Root Mean Squared Error:  1.2136 pawns
+R² Generalization Score:  0.7820
+Model successfully saved to 'chess_eval_model.joblib' and 'chess_eval_scaler.joblib'!
+
+Saved evaluation charts to 'chess_ml_results.png'!
+
+======================================================================
+DEMONSTRATION: Mid-Play Live Game Evaluation
+======================================================================
+
+=== Move 0: Starting Position ===
+FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+Score (White perspective): -0.05 pawns
+White Win Prob: 49.3% | Black Win Prob: 50.7%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : +0.00
+  - Piece_Mobility        : +0.00
+  - King_Safety           : +0.00
+  - Positional_PST_Score  : +0.00
+  - Potential_Advantage   : -0.00
+
+=== Move 5: Italian Game (Quiet Giuoco) ===
+FEN: r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 1 5
+Score (White perspective): -0.24 pawns
+White Win Prob: 46.5% | Black Win Prob: 53.5%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : -1.00
+  - Piece_Mobility        : +2.00
+  - King_Safety           : +0.00
+  - Positional_PST_Score  : -0.30
+  - Potential_Advantage   : +0.00
+
+=== Move 10: Asymmetrical Position ===
+FEN: r1b1k2r/pppp1ppp/8/4q3/1bP5/2N1P3/PP3PPP/R2QKB1R w KQkq - 0 10
+Score (White perspective): -0.10 pawns
+White Win Prob: 48.6% | Black Win Prob: 51.4%
+Status: Position is EQUAL / BALANCED.
+Feature Breakdown:
+  - Material_Advantage    : +0.00
+  - Piece_Vulnerability   : +0.00
+  - Center_Control        : +3.00
+  - Piece_Mobility        : -13.00
+  - King_Safety           : +1.00
+  - Positional_PST_Score  : +0.05
+  - Potential_Advantage   : -0.35
+
+======================================================================
+               FINAL CHESS EVALUATION SUMMARY
+======================================================================
+Position Stage                      | Eval Score   | White Win% | Black Win% | Assessment
+--------------------------------------------------------------------------------------------
+Opening (Starting Position)         | -0.05 pawns  |  49.3%     |  50.7%     | Balanced / Drawish
+Midgame 1 (Italian Game - White Center) | -0.24 pawns  |  46.5%     |  53.5%     | Balanced / Drawish
+Midgame 2 (Black Advantage)         | -0.10 pawns  |  48.6%     |  51.4%     | Balanced / Drawish
+======================================================================
+Evaluation Complete. Charts saved to 'chess_ml_results.png'.
+======================================================================
