@@ -11,9 +11,17 @@
 #        - Evaluate and predict who is in position to win
 # ==============================================================================
 
+from pathlib import Path
+
 import cv2
+import joblib
 import numpy as np
 import chess
+
+if __package__:
+    from .v4_FP2 import LiveGameEvaluator, MODEL_FILE, SCALER_FILE
+else:
+    from v4_FP2 import LiveGameEvaluator, MODEL_FILE, SCALER_FILE
 
 # ------------------------------------------------------------------------------
 # 1. PERSPECTIVE TRANSFORMATION & WARPING
@@ -140,27 +148,24 @@ def resolve_move(board, changed_squares):
 # ------------------------------------------------------------------------------
 # 4. POSITION & WIN ADVANTAGE EVALUATION
 # ------------------------------------------------------------------------------
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3.2,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-    chess.KING: 0
-}
+def load_evaluator():
+    """Load the v4 model and scaler saved beside the project."""
+    project_dir = Path(__file__).resolve().parent.parent
+    model_path = project_dir / MODEL_FILE
+    scaler_path = project_dir / SCALER_FILE
+    missing_files = [str(path) for path in (model_path, scaler_path) if not path.is_file()]
+    if missing_files:
+        raise FileNotFoundError(
+            "Required v4 chess evaluation file(s) not found: "
+            + ", ".join(missing_files)
+            + ". Run main/v4_FP2.py to create them."
+        )
 
-# Center squares bonus (d4, e4, d5, e5)
-CENTER_SQUARES = [chess.D4, chess.E4, chess.D5, chess.E5]
+    return LiveGameEvaluator(joblib.load(model_path), joblib.load(scaler_path))
 
-def evaluate_position(board):
-    """
-    Evaluates who is in position to win based on:
-      1. Material balance (Pawn=1, Knight/Bishop=3, Rook=5, Queen=9)
-      2. Board center control (d4, e4, d5, e5)
-      3. Piece mobility (number of legal move options)
-      4. King safety / Checks
-    Returns formatted evaluation verdict string and numeric score.
-    """
+
+def evaluate_position(board, evaluator):
+    """Evaluate the board with the trained v4 model, preserving terminal verdicts."""
     if board.is_checkmate():
         winner = "Black" if board.turn == chess.WHITE else "White"
         return f"CHECKMATE! {winner} Wins!", (100.0 if winner == "White" else -100.0)
@@ -168,77 +173,58 @@ def evaluate_position(board):
     if board.is_game_over():
         return "DRAW / STALEMATE", 0.0
 
-    # 1. Material score
-    material_score = 0.0
-    for sq in chess.SQUARES:
-        piece = board.piece_at(sq)
-        if piece:
-            val = PIECE_VALUES[piece.piece_type]
-            material_score += val if piece.color == chess.WHITE else -val
-
-    # 2. Center control bonus
-    center_score = 0.0
-    for sq in CENTER_SQUARES:
-        piece = board.piece_at(sq)
-        if piece:
-            bonus = 0.3
-            center_score += bonus if piece.color == chess.WHITE else -bonus
-
-    # 3. Mobility score
-    white_mobility = len(list(board.legal_moves)) if board.turn == chess.WHITE else 0
-    board.push(chess.Move.null())  # Null move to peek at opponent mobility
-    black_mobility = len(list(board.legal_moves)) if board.turn == chess.BLACK else 0
-    board.pop()
-    mobility_score = 0.05 * (white_mobility - black_mobility)
-
-    # 4. Check pressure
-    check_score = 0.0
-    if board.is_check():
-        # Negative impact for whichever player is in check
-        check_score = -0.5 if board.turn == chess.WHITE else 0.5
-
-    # Total advantage score (> 0 means White advantage, < 0 means Black advantage)
-    total_eval = material_score + center_score + mobility_score + check_score
-
-    if total_eval >= 2.0:
-        verdict = f"White is Winning (+{total_eval:.2f})"
-    elif total_eval >= 0.7:
-        verdict = f"White has Slight Advantage (+{total_eval:.2f})"
-    elif total_eval <= -2.0:
-        verdict = f"Black is Winning ({total_eval:.2f})"
-    elif total_eval <= -0.7:
-        verdict = f"Black has Slight Advantage ({total_eval:.2f})"
+    score = evaluator.evaluate_fen(board.fen())["score"]
+    if score >= 2.0:
+        verdict = "White is winning"
+    elif score > 0.6:
+        verdict = "White has a slight advantage"
+    elif score <= -2.0:
+        verdict = "Black is winning"
+    elif score < -0.6:
+        verdict = "Black has a slight advantage"
     else:
-        verdict = f"Equal Position / Balanced ({total_eval:.2f})"
+        verdict = "Position is balanced"
 
-    return verdict, total_eval
+    return verdict, score
 
-def draw_digital_board(board, height, evaluation):
-    """Render the tracked chess position in a panel beside the camera feed."""
-    panel_width = max(380, int(height * 0.85))
+def draw_digital_board(board, height, evaluation, evaluation_score):
+    """Render the board and model-driven evaluation bar beside the camera feed."""
+    board_panel_width = max(500, int(height * 1.0))
+    evaluation_panel_width = 440
+    bar_panel_width = 110
+    panel_width = board_panel_width + evaluation_panel_width + bar_panel_width
     panel = np.full((height, panel_width, 3), (35, 35, 35), dtype=np.uint8)
     cv2.putText(
-        panel, "CURRENT POSITION", (16, 28),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (245, 245, 245), 2
+        panel, "CURRENT POSITION", (16, 42),
+        cv2.FONT_HERSHEY_SIMPLEX, 1.35, (245, 245, 245), 4
+    )
+    evaluation_x = board_panel_width + 14
+    cv2.putText(
+        panel, "POSITION EVALUATION", (evaluation_x, 42),
+        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (120, 230, 120), 3
+    )
+    cv2.putText(
+        panel, evaluation, (evaluation_x, 82),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.95, (120, 230, 120), 3
+    )
+    cv2.putText(
+        panel, f"Model score: {evaluation_score:+.2f}", (evaluation_x, 119),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.82, (210, 210, 210), 3
     )
     turn = "White" if board.turn == chess.WHITE else "Black"
     cv2.putText(
-        panel, f"{turn} to move | Move {board.fullmove_number}", (16, 55),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.48, (210, 210, 210), 1
-    )
-    cv2.putText(
-        panel, evaluation[:48], (16, 78),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 230, 120), 1
+        panel, f"{turn} to move | Move {board.fullmove_number}", (16, 86),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.95, (210, 210, 210), 3
     )
 
     margin = 30
-    board_size = min(panel_width - 2 * margin, height - 115)
+    board_size = min(board_panel_width - 2 * margin, height - 205)
     if board_size < 8:
         return panel
     square_size = board_size // 8
     board_size = square_size * 8
-    left = (panel_width - board_size) // 2
-    top = 92 + max(0, (height - 115 - board_size) // 2)
+    left = (board_panel_width - board_size) // 2
+    top = 192 + max(0, (height - 200 - board_size) // 2)
 
     light_square = (238, 216, 181)
     dark_square = (181, 136, 99)
@@ -340,6 +326,28 @@ def draw_digital_board(board, height, evaluation):
                 center = (x1 + square_size // 2, y1 + square_size // 2)
                 draw_piece_icon(piece, center, square_size)
 
+    bar_x = board_panel_width + evaluation_panel_width + (bar_panel_width - 60) // 2
+    bar_width = 60
+    bar_top = 100
+    bar_bottom = height - 48
+    bar_height = bar_bottom - bar_top
+    white_probability = 1.0 / (1.0 + 10.0 ** (-max(-100.0, min(100.0, evaluation_score)) / 4.0))
+    white_height = int(bar_height * white_probability)
+    split_y = bar_bottom - white_height
+
+    cv2.putText(
+        panel, "BLACK", (board_panel_width + evaluation_panel_width + 8, 44),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.72, (235, 235, 235), 2
+    )
+    cv2.rectangle(panel, (bar_x, bar_top), (bar_x + bar_width, split_y), (55, 55, 55), -1)
+    cv2.rectangle(panel, (bar_x, split_y), (bar_x + bar_width, bar_bottom), (235, 235, 235), -1)
+    cv2.rectangle(panel, (bar_x, bar_top), (bar_x + bar_width, bar_bottom), (175, 175, 175), 2)
+    cv2.line(panel, (bar_x - 5, split_y), (bar_x + bar_width + 5, split_y), (80, 210, 120), 3)
+    cv2.putText(
+        panel, "WHITE", (board_panel_width + evaluation_panel_width + 8, height - 14),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.72, (235, 235, 235), 2
+    )
+
     return panel
 
 # ------------------------------------------------------------------------------
@@ -355,7 +363,8 @@ def mouse_callback(event, x, y, flags, param):
 
 def main():
     global clicked_corners
-    cap = cv2.VideoCapture(1)   #RIGHT HERE TO CHANGE DEFAULT CAMERA (0, 1, 2)
+    evaluator = load_evaluator()
+    cap = cv2.VideoCapture(2)   #RIGHT HERE TO CHANGE DEFAULT CAMERA (0, 1, 2)
     
     if not cap.isOpened():
         print("Error: Could not access webcam. Check permissions and connection.")
@@ -368,7 +377,7 @@ def main():
     # Initialize standard chess board starting position
     board = chess.Board()
     previous_warped = None
-    last_evaluation = "Game Started - White to move."
+    last_evaluation, last_score = evaluate_position(board, evaluator)
 
     print("=" * 65)
     print("REAL-TIME CHESS TRACKER & WIN PREDICTOR")
@@ -392,7 +401,7 @@ def main():
         for idx, pt in enumerate(clicked_corners, 1):
             cv2.circle(display, pt, 6, (0, 0, 255), -1)
             cv2.putText(display, str(idx), (pt[0] + 8, pt[1] - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         warped = None
         if len(clicked_corners) == 4:
@@ -411,9 +420,9 @@ def main():
         # Onscreen instructions
         info_text = f"Corners: {len(clicked_corners)}/4 | Press Space to record move"
         cv2.putText(display, info_text, (15, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.15, (255, 255, 0), 3)
 
-        digital_board = draw_digital_board(board, display.shape[0], last_evaluation)
+        digital_board = draw_digital_board(board, display.shape[0], last_evaluation, last_score)
         combined_view = np.hstack((display, digital_board))
         cv2.imshow(window_name, combined_view)
         key = cv2.waitKey(1) & 0xFF
@@ -425,7 +434,7 @@ def main():
             clicked_corners.clear()
             previous_warped = None
             board.reset()
-            last_evaluation = "Game Reset."
+            last_evaluation, last_score = evaluate_position(board, evaluator)
             print("\nGame and corners have been reset. Set pieces and click 4 corners again.")
 
         elif key == 32:  # SPACEBAR
@@ -444,7 +453,7 @@ def main():
                 previous_warped = warped.copy()
 
                 # Run win prediction model
-                verdict, score = evaluate_position(board)
+                verdict, last_score = evaluate_position(board, evaluator)
                 last_evaluation = verdict
 
                 print("-" * 50)

@@ -423,7 +423,7 @@ def draw_digital_board(board, height, evaluation):
 # 5. MAIN CAMERA LOOP
 # ------------------------------------------------------------------------------
 def main():
-    cap = cv2.VideoCapture(1)   #RIGHT HERE TO CHANGE DEFAULT CAMERA (0, 1, 2)
+    cap = cv2.VideoCapture(2)   #RIGHT HERE TO CHANGE DEFAULT CAMERA (0, 1, 2)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  #lowered the resolution to 640x480 for better frame rate
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
